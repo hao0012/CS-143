@@ -85,17 +85,17 @@
 %union {
   Boolean boolean;
   Symbol symbol;
-  Program program; // 
-  Class_ class_; //
-  Classes classes; //
-  Feature feature; // 
-  Features features; //
-  Formal formal; //
-  Formals formals; //
-  Case case_; //
-  Cases cases; //
-  Expression expression; // 
-  Expressions expressions; //
+  Program program;  
+  Class_ class_; 
+  Classes classes; 
+  Feature feature;  
+  Features features; 
+  Formal formal; 
+  Formals formals; 
+  Case case_; 
+  Cases cases; 
+  Expression expression;  
+  Expressions expressions; 
   char *error_msg;
 }
     
@@ -126,7 +126,7 @@ value of each non terminal. (See section 3.6 in the bison
 documentation for details). */
 
 /* Declare types for the grammar's non-terminals. */
-%type <program> program // non-terminal symbol program (the second word) have type <program>, which is defined in %union
+%type <program> program
 %type <classes> class_list
 %type <class_> class
     
@@ -137,11 +137,12 @@ documentation for details). */
 %type <formals> formal_list
 %type <formal> formal
 
-%type <expressions> expression_list_1
-%type <expressions> expression_list_2
+%type <expressions> blocks
+%type <expressions> expression_list
 
+%type <expression> let_expr
 %type <expression> expression
-    
+
 %type <cases> case_list
 %type <case_> case
 
@@ -166,11 +167,11 @@ Save the root of the abstract syntax tree in a global variable.
 program	:
 class_list	{ 
     @$ = @1; 
-    ast_root = program($1); 
+    ast_root = program($1);
   } 
 ;
 
-class_list: // [class]+ at least 1 class
+class_list: 
   class {
     $$ = single_Classes($1);
     parse_results = $$; 
@@ -181,49 +182,53 @@ class_list: // [class]+ at least 1 class
   }
 ;
 /* If no parent is specified, the class inherits from the Object class. */
-class	: 
-CLASS TYPEID '{' feature_list '}' ';'
-  { 
+class: 
+  CLASS TYPEID '{' feature_list '}' ';' { 
     $$ = class_($2,idtable.add_string("Object"),$4,
     stringtable.add_string(curr_filename)); 
   }
-| CLASS TYPEID INHERITS TYPEID '{' feature_list '}' ';' 
-  { 
+| CLASS TYPEID INHERITS TYPEID '{' feature_list '}' ';' { 
     $$ = class_($2,$4,$6,
     stringtable.add_string(curr_filename)); 
   }
+| CLASS error ';' class {
+    $$ = $4;
+}
 ;
 
+
 /* Feature list may be empty, but no empty features in list. */
-feature_list: // 类中的语句 类中可以为空 [feature]*
+feature_list: // [feature]*
   { $$ = nil_Features(); }
-| feature_list feature ';'  {
+| feature_list feature  {
     $$ = append_Features($1, single_Features($2));
   }
+| feature_list error ';'  {
+    $$ = $1;
+}
 ;
 
 feature:
-  OBJECTID '(' ')' ':' TYPEID '{' expression '}'  {
+  OBJECTID '(' ')' ':' TYPEID '{' expression '}' ';'  {
     $$ = method($1, nil_Formals(), $5, $7);
   }
-| OBJECTID '(' formal_list ')' ':' TYPEID '{' expression '}'  {
-    $$ = method($1, $3, $5, $7);
-}
-| OBJECTID ':' TYPEID {
+| OBJECTID '(' formal_list ')' ':' TYPEID '{' expression '}' ';'  {
+    $$ = method($1, $3, $6, $8);
+  }
+| OBJECTID ':' TYPEID ';' {
     $$ = attr($1, $3, no_expr());
-}
-| OBJECTID ':' TYPEID ASSIGN expression {
+  }
+| OBJECTID ':' TYPEID ASSIGN expression ';' {
     $$ = attr($1, $3, $5);
-}
+  }
 ;
 
-formal_list: // 函数的参数表 可以为空 ((formal,)*formal)?
-                      { $$ = nil_Formals(); }
+formal_list: /
+  formal                  { 
+    $$ = single_Formals($1); 
+  }
 | formal_list ',' formal  {
     $$ = append_Formals($1, single_Formals($3));
-  }
-| formal_list formal  {
-    $$ = append_Formals($1, single_Formals($2));
   }
 ;
 // constructor formal(name, type_decl: Symbol) : Formal;
@@ -233,44 +238,62 @@ formal:
 }
 ;
 
-expression_list_1: // [expression;]+
-  expression                        { 
-    $$ = append_Expressions($$, single_Expression($1);); 
+blocks: // [expression;]+
+  expression ';'  { 
+    $$ = single_Expressions($1); 
   }
-| expression_list_1 expression ';'  {
+| blocks expression ';' {
     $$ = append_Expressions($1, single_Expressions($2));
   }
+| blocks error ';'  {
+    $$ = $1;
+}
 ;
-expression_list_2: // expression(,expression)*
+expression_list: // expression(,expression)*
   expression  {
     $$ = single_Expressions($1);
   }
-| expression_list_2 ',' expression  {
+| expression_list ',' expression  {
     $$ = append_Expressions($1, single_Expressions($3));
+  }
+;
+let_expr:
+  OBJECTID ':' TYPEID IN expression {
+    $$ = let($1, $3, no_expr(), $5);
+  }
+| OBJECTID ':' TYPEID ASSIGN expression IN expression {
+    $$ = let($1, $3, $5, $7);
+  }
+| OBJECTID ':' TYPEID ',' let_expr  {
+    $$ = let($1, $3, no_expr(), $5);
+  }  
+ | OBJECTID ':' TYPEID ASSIGN expression ',' let_expr {
+    $$ = let($1, $3, $5, $7);
+  } 
+ | error ',' let_expr  {
+    $$ = $3;
 }
-
+;
 expression:
   OBJECTID ASSIGN expression  { 
     $$ = assign($1, $3); 
   }
-| expression '[' '@' TYPEID ']' '.' OBJECTID '(' ')'  { 
-    $$ = static_dispatch($1, $4, $7, nil_Expressions());
-  }
-| expression '[' '@' TYPEID ']' '.' OBJECTID '(' expression_list_2 ')'  { 
-    $$ = static_dispatch($1, $4, $7, $9);
-  }
-
 | expression '.' OBJECTID '(' ')' { 
     $$ = dispatch($1, $3, nil_Expressions()); 
   }
-| expression '.' OBJECTID '(' expression_list_2 ')' { 
+| expression '.' OBJECTID '(' expression_list ')' { 
     $$ = dispatch($1, $3, $5); 
   }
-
+| expression '@' TYPEID '.' OBJECTID '(' ')'  { 
+    $$ = static_dispatch($1, $3, $5, nil_Expressions());
+  }
+| expression '@' TYPEID '.' OBJECTID '(' expression_list ')'  { 
+    $$ = static_dispatch($1, $3, $5, $7);
+  }
 | OBJECTID '(' ')'  { 
     $$ = dispatch(object(idtable.add_string("self")), $1, nil_Expressions()); 
   }
-| OBJECTID '(' expression_list_2 ')'  { 
+| OBJECTID '(' expression_list ')'  { 
     $$ = dispatch(object(idtable.add_string("self")), $1, $3); 
   }
 | IF expression THEN expression ELSE expression FI  { 
@@ -279,11 +302,11 @@ expression:
 | WHILE expression LOOP expression POOL { 
     $$ = loop($2, $4); 
   }
-| '{' expression_list_1 '}' { 
+| '{' blocks '}' { 
     $$ = block($2); 
   }
-| LET OBJECTID ':' TYPEID feature_list IN expression  { 
-    $$ = let($2, $4, $5, $7); 
+| LET let_expr  {
+    $$ = $2;
   }
 | CASE expression OF case_list ESAC { 
     $$ = typcase($2, $4); 
@@ -327,6 +350,7 @@ expression:
 | OBJECTID    { 
     $$ = object($1); 
   }
+  
 | INT_CONST   { 
     $$ = int_const($1); 
   }
@@ -337,25 +361,19 @@ expression:
     $$ = bool_const($1); 
   }
 ;
-
-/* constructor dispatch(expr : Expression; 
-          name : Symbol;
-          actual : Expressions) : Expression;
-  constructor static_dispatch(expr: Expression; 
-          type_name : Symbol;
-          name : Symbol; 
-          actual : Expressions) : Expression;
-*/
-
-
-
 case_list:
-  case ';'  { $$ = single_Cases($$, $1); }
-| case_list case ';'  { $$ = append_Cases($1, $2); }
+  case  { 
+    $$ = single_Cases($1); 
+  }
+| case_list case  { 
+    $$ = append_Cases($1, single_Cases($2)); 
+  }
 ;
-
-case: OBJECTID ':' TYPEID DARROW expression { $$ = branch($1, $3, $5); }
-
+case: 
+  OBJECTID ':' TYPEID DARROW expression ';' { 
+    $$ = branch($1, $3, $5); 
+  }
+;
 %%
 
 /* This function is called automatically when Bison detects a parse error. */
