@@ -85,7 +85,7 @@
 %union {
   Boolean boolean;
   Symbol symbol;
-  Program program;  
+  Program program; 
   Class_ class_; 
   Classes classes; 
   Feature feature;  
@@ -94,7 +94,7 @@
   Formals formals; 
   Case case_; 
   Cases cases; 
-  Expression expression;  
+  Expression expression; 
   Expressions expressions; 
   char *error_msg;
 }
@@ -126,7 +126,7 @@ value of each non terminal. (See section 3.6 in the bison
 documentation for details). */
 
 /* Declare types for the grammar's non-terminals. */
-%type <program> program
+%type <program> program // non-terminal symbol program (the second word) have type <program>, which is defined in %union
 %type <classes> class_list
 %type <class_> class
     
@@ -168,10 +168,10 @@ program	:
 class_list	{ 
     @$ = @1; 
     ast_root = program($1);
-  } 
+  }
 ;
 
-class_list: 
+class_list: // [class]+ at least 1 class
   class {
     $$ = single_Classes($1);
     parse_results = $$; 
@@ -182,7 +182,7 @@ class_list:
   }
 ;
 /* If no parent is specified, the class inherits from the Object class. */
-class: 
+class:
   CLASS TYPEID '{' feature_list '}' ';' { 
     $$ = class_($2,idtable.add_string("Object"),$4,
     stringtable.add_string(curr_filename)); 
@@ -191,14 +191,20 @@ class:
     $$ = class_($2,$4,$6,
     stringtable.add_string(curr_filename)); 
   }
-| CLASS error ';' class {
+| error TYPEID INHERITS TYPEID '{' feature_list '}' ';' 
+| CLASS error INHERITS TYPEID '{' feature_list '}' ';' 
+| CLASS TYPEID error TYPEID '{' feature_list '}' ';' 
+| CLASS TYPEID INHERITS error '{' feature_list '}' ';' 
+| CLASS TYPEID INHERITS TYPEID error feature_list '}' ';' 
+| CLASS TYPEID INHERITS TYPEID '{' feature_list error ';' 
+/* | CLASS error ';' class {
     $$ = $4;
-}
+} */
 ;
 
 
 /* Feature list may be empty, but no empty features in list. */
-feature_list: // [feature]*
+feature_list: // 类中的语句 可以为空 [feature]*
   { $$ = nil_Features(); }
 | feature_list feature  {
     $$ = append_Features($1, single_Features($2));
@@ -223,7 +229,8 @@ feature:
   }
 ;
 
-formal_list: /
+formal_list: // 函数的参数表 ((formal,)*formal)?
+    /* { $$ = nil_Formals(); } */
   formal                  { 
     $$ = single_Formals($1); 
   }
